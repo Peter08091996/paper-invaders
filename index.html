@@ -1,0 +1,1071 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>论文侵略者 · Paper Space Invaders</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+
+body{
+  background:#f2ede4;
+  font-family:Georgia,"Times New Roman",serif;
+  color:#111;
+  min-height:100vh;
+  overflow-x:hidden;
+}
+
+/* ═══════════════════════════════════════
+   PAPER BACKGROUND  —  static white card
+═══════════════════════════════════════ */
+#paper-bg{
+  position:fixed;
+  left:50%;transform:translateX(-50%);
+  top:18px;bottom:18px;
+  width:min(calc(100% - 36px),860px);
+  background:#fffef8;
+  box-shadow:0 2px 28px rgba(0,0,0,.14),0 0 0 1px rgba(0,0,0,.06);
+  z-index:0;pointer-events:none;
+}
+
+/* ═══════════════════════════════════════
+   TEXT STAGE  —  physics word field
+═══════════════════════════════════════ */
+#text-stage{
+  position:fixed;top:0;left:0;width:100%;height:100%;
+  z-index:1;overflow:hidden;pointer-events:none;
+}
+/* Individual physics word */
+.wp{
+  position:absolute;
+  pointer-events:none;user-select:none;
+  white-space:nowrap;
+  will-change:transform;
+  font-family:Georgia,"Times New Roman",serif;
+  color:#1a1208;
+  line-height:1;
+}
+
+/* ═══════════════════════════════════════
+   CANVAS — sits directly on the paper, NO overlay
+═══════════════════════════════════════ */
+#game-canvas{
+  position:fixed;
+  top:0;left:0;width:100%;height:100%;
+  z-index:50;
+  pointer-events:none;
+  /* No dark background — sprites live ON the paper */
+}
+
+/* ═══════════════════════════════════════
+   HUD
+═══════════════════════════════════════ */
+#hud{
+  position:fixed;top:0;left:0;right:0;z-index:200;
+  display:none;justify-content:space-between;align-items:center;
+  padding:5px 18px;
+  background:rgba(255,252,240,.92);
+  border-bottom:1.5px solid #222;
+  font-family:'Courier New',monospace;font-size:13px;color:#111;
+  letter-spacing:.05em;
+}
+#hud span b{color:#c00}
+
+/* ═══════════════════════════════════════
+   START / GAMEOVER OVERLAY
+═══════════════════════════════════════ */
+#overlay-screen{
+  position:fixed;top:0;left:0;right:0;bottom:0;z-index:300;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  pointer-events:none;
+  background:rgba(242,237,228,0);
+  transition:background .4s;
+}
+#overlay-screen.active{pointer-events:auto;background:rgba(242,237,228,.55)}
+#start-box{
+  background:rgba(255,253,240,.96);
+  border:2px solid #111;
+  padding:28px 44px;text-align:center;
+  font-family:'Courier New',monospace;color:#111;
+  box-shadow:6px 6px 0 #111;
+  max-width:400px;width:90%;
+}
+#start-box h1{
+  font-size:26px;letter-spacing:6px;margin-bottom:5px;
+  font-family:'Courier New',monospace;
+}
+#start-box .subtitle{font-size:9px;letter-spacing:.18em;color:#888;margin-bottom:14px}
+#score-table{margin:10px auto;border-spacing:8px 6px;font-size:11px}
+#score-table td:first-child{text-align:right}
+#overlay-msg{
+  font-size:13px;margin:14px 0 5px;letter-spacing:.06em;color:#111;
+  animation:blink 1s step-end infinite;
+}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:0}}
+.ctrl-hint{font-size:10px;color:#888;margin-top:7px;line-height:1.9}
+
+/* ═══════════════════════════════════════
+   UPLOAD
+═══════════════════════════════════════ */
+#upload-area{
+  position:fixed;bottom:16px;right:16px;z-index:400;
+  display:flex;flex-direction:column;align-items:flex-end;gap:5px;
+}
+#upload-btn{
+  background:rgba(255,253,240,.95);border:1.5px solid #111;
+  color:#111;font-family:'Courier New',monospace;font-size:11px;
+  padding:6px 13px;cursor:pointer;letter-spacing:.04em;
+  box-shadow:3px 3px 0 #111;transition:all .15s;
+}
+#upload-btn:hover{transform:translate(-1px,-1px);box-shadow:4px 4px 0 #111}
+#pdf-input{display:none}
+#status-msg{
+  font-family:'Courier New',monospace;font-size:10px;color:#111;
+  background:rgba(255,253,240,.95);border:1px solid #555;
+  padding:3px 9px;display:none;
+}
+
+/* ═══════════════════════════════════════
+   MOBILE
+═══════════════════════════════════════ */
+#mobile-ctrl{
+  position:fixed;bottom:16px;left:0;right:0;z-index:400;
+  display:none;justify-content:space-between;padding:0 18px;pointer-events:none;
+}
+#mobile-ctrl.show{display:flex}
+.cbtn{
+  width:58px;height:58px;border-radius:50%;
+  background:rgba(255,253,240,.9);border:2px solid #111;
+  color:#111;font-size:20px;display:flex;align-items:center;justify-content:center;
+  cursor:pointer;pointer-events:auto;user-select:none;
+  box-shadow:3px 3px 0 #111;-webkit-tap-highlight-color:transparent;
+}
+</style>
+</head>
+<body>
+
+<!-- Static paper background card -->
+<div id="paper-bg"></div>
+<!-- Physics word field -->
+<div id="text-stage"></div>
+
+<canvas id="game-canvas"></canvas>
+
+<div id="hud">
+  <span>SCORE&ensp;<b id="sv">0000</b></span>
+  <span>HI&ensp;<b id="hv">0000</b></span>
+  <span>LEVEL&ensp;<b id="lv">1</b></span>
+  <span>LIVES&ensp;<b id="liv">♥ ♥ ♥</b></span>
+</div>
+
+<div id="overlay-screen" class="active">
+  <div id="start-box">
+    <h1>SPACE INVADERS</h1>
+    <div class="subtitle">— ACADEMIC EDITION —</div>
+    <table id="score-table">
+      <tr><td><canvas id="pv-sq" width="28" height="22"></canvas></td><td style="text-align:left">&ensp;= 30 PTS</td></tr>
+      <tr><td><canvas id="pv-cr" width="36" height="22"></canvas></td><td style="text-align:left">&ensp;= 20 PTS</td></tr>
+      <tr><td><canvas id="pv-oc" width="40" height="22"></canvas></td><td style="text-align:left">&ensp;= 10 PTS</td></tr>
+      <tr><td><canvas id="pv-uf" width="50" height="22"></canvas></td><td style="text-align:left">&ensp;= ??? PTS</td></tr>
+    </table>
+    <div id="overlay-msg">PRESS SPACE OR CLICK TO START</div>
+    <div class="ctrl-hint">← → 移动 &nbsp;|&nbsp; SPACE 射击 &nbsp;|&nbsp; P 暂停<br>右下角 📄 上传自己的论文</div>
+  </div>
+</div>
+
+<div id="upload-area">
+  <div id="status-msg"></div>
+  <button id="upload-btn" onclick="document.getElementById('pdf-input').click()">📄 上传论文 PDF / TXT</button>
+  <input type="file" id="pdf-input" accept=".pdf,.txt" onchange="handleUpload(event)">
+</div>
+
+<div id="mobile-ctrl">
+  <div class="cbtn" id="bl">◀</div>
+  <div style="display:flex;gap:12px">
+    <div class="cbtn" id="bsh">●</div>
+  </div>
+  <div class="cbtn" id="br">▶</div>
+</div>
+
+<script>
+'use strict';
+
+// ═══════════════════════════════════════════════════════
+// PDF.js
+// ═══════════════════════════════════════════════════════
+if (typeof pdfjsLib !== 'undefined') {
+  pdfjsLib.GlobalWorkerOptions.workerSrc =
+    'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+}
+
+// ═══════════════════════════════════════════════════════
+// DEFAULT PAPER
+// ═══════════════════════════════════════════════════════
+const DEFAULT_PAPER = {
+  title:'Attention Is All You Need',
+  authors:'Ashish Vaswani · Noam Shazeer · Niki Parmar · Jakob Uszkoreit\nLlion Jones · Aidan N. Gomez · Łukasz Kaiser · Illia Polosukhin',
+  affil:'Google Brain &nbsp;·&nbsp; Google Research &nbsp;·&nbsp; University of Toronto',
+  abstract:'The dominant sequence transduction models are based on complex recurrent or convolutional neural networks that include an encoder and a decoder. The best performing models also connect the encoder and decoder through an attention mechanism. We propose a new simple network architecture, the Transformer, based solely on attention mechanisms, dispensing with recurrence and convolutions entirely. Experiments on two machine translation tasks show these models to be superior in quality while being more parallelizable and requiring significantly less time to train. Our model achieves 28.4 BLEU on the WMT 2014 English-to-German translation task, improving over the existing best results, including ensembles, by over 2 BLEU. On the WMT 2014 English-to-French translation task, our model establishes a new single-model state-of-the-art BLEU score of 41.0 after training for 3.5 days on eight GPUs, a small fraction of the training costs of the best models from the literature.',
+  keywords:'transformer, self-attention, neural machine translation, sequence transduction',
+  sections:[
+    {head:'1.&nbsp; Introduction',sub:null,body:[
+      'Recurrent neural networks, long short-term memory [13] and gated recurrent [7] neural networks in particular, have been firmly established as state of the art approaches in sequence modeling and transduction problems such as language modeling and machine translation [35, 2, 5]. Numerous efforts have since continued to push the boundaries of recurrent language models and encoder–decoder architectures [38, 24, 15].',
+      'Recurrent models typically factor computation along the symbol positions of the input and output sequences. Aligning the positions to steps in computation time, they generate a sequence of hidden states h<sub>t</sub>, as a function of the previous hidden state h<sub>t−1</sub> and the input for position t. This inherently sequential nature precludes parallelization within training examples, which becomes critical at longer sequence lengths, as memory constraints limit batching across examples.',
+      'Attention mechanisms have become an integral part of compelling sequence modeling and transduction models in various tasks, allowing modeling of dependencies without regard to their distance in the input or output sequences [2, 19]. In this work we propose the Transformer, a model architecture eschewing recurrence and instead relying entirely on an attention mechanism to draw global dependencies between input and output.',
+    ]},
+    {head:'2.&nbsp; Background',sub:null,body:[
+      'The goal of reducing sequential computation also forms the foundation of the Extended Neural GPU [16], ByteNet [18] and ConvS2S [9], all of which use convolutional neural networks as basic building block, computing hidden representations in parallel for all input and output positions. In these models, the number of operations required to relate signals from two arbitrary input or output positions grows in the distance between positions.',
+      'Self-attention, sometimes called intra-attention, is an attention mechanism relating different positions of a single sequence in order to compute a representation of the sequence. Self-attention has been used successfully in a variety of tasks including reading comprehension, abstractive summarization, textual entailment and learning task-independent sentence representations [4, 27, 28, 22].',
+    ]},
+    {head:'3.&nbsp; Model Architecture',sub:null,body:[
+      'Most competitive neural sequence transduction models have an encoder–decoder structure [5, 2, 35]. The encoder maps an input sequence of symbol representations (x<sub>1</sub>,…,x<sub>n</sub>) to a sequence of continuous representations <em>z</em>=(z<sub>1</sub>,…,z<sub>n</sub>). Given <em>z</em>, the decoder then generates an output sequence one element at a time. The Transformer follows this overall architecture using stacked self-attention and point-wise, fully connected layers for both the encoder and decoder.',
+    ]},
+    {head:null,sub:'3.1&nbsp; Encoder and Decoder Stacks',body:[
+      '<em>Encoder:</em> The encoder is composed of a stack of N=6 identical layers. Each layer has two sub-layers. The first is a multi-head self-attention mechanism, and the second is a position-wise fully connected feed-forward network. We employ a residual connection [11] around each of the two sub-layers, followed by layer normalization: LayerNorm(<em>x</em>+Sublayer(<em>x</em>)).',
+      '<em>Decoder:</em> The decoder is also composed of N=6 identical layers. In addition to the two sub-layers in each encoder layer, the decoder inserts a third sub-layer performing multi-head attention over the output of the encoder stack. We also modify the self-attention sub-layer in the decoder to prevent positions from attending to subsequent positions.',
+    ]},
+    {head:null,sub:'3.2&nbsp; Scaled Dot-Product Attention',body:[
+      'An attention function maps a query and a set of key-value pairs to an output. The output is computed as a weighted sum of the values, where the weight assigned to each value is computed by a compatibility function of the query with the corresponding key.',
+      '<span class="eq">Attention(<em>Q,K,V</em>) = softmax(<em>QK</em><sup>T</sup>/√<em>d<sub>k</sub></em>)·<em>V</em></span>',
+      'The input consists of queries and keys of dimension d<sub>k</sub>, and values of dimension d<sub>v</sub>. We compute the dot products of the query with all keys, divide each by √d<sub>k</sub>, and apply a softmax function to obtain the weights on the values.',
+    ]},
+    {head:null,sub:'3.3&nbsp; Multi-Head Attention',body:[
+      'Instead of performing a single attention function with d<sub>model</sub>-dimensional keys, values and queries, we found it beneficial to linearly project the queries, keys and values h times with different, learned linear projections to d<sub>k</sub>, d<sub>k</sub> and d<sub>v</sub> dimensions, respectively.',
+      '<span class="eq">MultiHead(<em>Q,K,V</em>) = Concat(head<sub>1</sub>,…,head<sub>h</sub>)·W<sup>O</sup></span>',
+    ]},
+    {head:'4.&nbsp; Why Self-Attention',sub:null,body:[
+      'In this section we compare various aspects of self-attention layers to the recurrent and convolutional layers commonly used for mapping one variable-length sequence of symbol representations to another sequence of equal length, such as a hidden layer in a typical sequence transduction encoder or decoder. We consider three desiderata: the total computational complexity per layer, the amount of computation that can be parallelized, and the path length between long-range dependencies.',
+      'Learning long-range dependencies is a key challenge in many sequence transduction tasks. One key factor affecting this is the length of the paths forward and backward signals have to traverse in the network. The shorter these paths between any combination of positions in the input and output sequences, the easier it is to learn long-range dependencies [12]. Self-attention connects all positions with a constant number of operations, whereas a recurrent layer requires O(n) sequential operations.',
+    ]},
+    {head:'5.&nbsp; Training',sub:null,body:[
+      'We trained on the standard WMT 2014 English-German dataset consisting of about 4.5 million sentence pairs. Sentences were encoded using byte-pair encoding [3], which has a shared source-target vocabulary of about 37000 tokens. For English-French, we used the significantly larger WMT 2014 English-French dataset consisting of 36M sentences and split tokens into a 32000 word-piece vocabulary [38].',
+      'We trained our models on one machine with 8 NVIDIA P100 GPUs. For our base models each training step took about 0.4 seconds. We trained the base models for a total of 100,000 steps or 12 hours. We used the Adam optimizer [20] with β<sub>1</sub>=0.9, β<sub>2</sub>=0.98 and ε=10<sup>−9</sup>.',
+    ]},
+    {head:'6.&nbsp; Results',sub:null,body:[
+      'On the WMT 2014 English-to-German translation task, the big Transformer outperforms the best previously reported models including ensembles by more than 2.0 BLEU, establishing a new state-of-the-art BLEU score of 28.4. Training took 3.5 days on 8 P100 GPUs. Even our base model surpasses all previously published models at a fraction of the training cost.',
+      'On the WMT 2014 English-to-French translation task, our big model achieves a BLEU score of 41.0, outperforming all previously published single models at less than 1/4 the training cost of the previous state-of-the-art model. To evaluate generalization, we also performed experiments on English constituency parsing. Despite the lack of task-specific tuning our model performs surprisingly well.',
+    ]},
+    {head:'7.&nbsp; Conclusion',sub:null,body:[
+      'In this work, we presented the Transformer, the first sequence transduction model based entirely on attention, replacing the recurrent layers most commonly used in encoder–decoder architectures with multi-headed self-attention. For translation tasks, the Transformer can be trained significantly faster than architectures based on recurrent or convolutional layers.',
+      'We achieved new state of the art on both WMT 2014 English-to-German and WMT 2014 English-to-French translation tasks. We are excited about the future of attention-based models and plan to apply them to other tasks involving input and output modalities other than text, such as images, audio and video.',
+    ]},
+  ],
+  refs:[
+    '[1] Ba, J. L., Kiros, J. R., &amp; Hinton, G. E. (2016). Layer normalization. <em>arXiv:1607.06450</em>.',
+    '[2] Bahdanau, D., Cho, K., &amp; Bengio, Y. (2015). Neural machine translation by jointly learning to align and translate. <em>ICLR 2015</em>.',
+    '[3] Sennrich, R., Haddow, B., &amp; Birch, A. (2016). Neural machine translation of rare words with subword units. <em>ACL 2016</em>.',
+    '[4] Lin, Z., et al. (2017). A structured self-attentive sentence embedding. <em>arXiv:1703.03130</em>.',
+    '[5] Luong, M.-T., Pham, H., &amp; Manning, C. D. (2015). Effective approaches to attention-based neural machine translation. <em>EMNLP 2015</em>.',
+    '[6] Cho, K., et al. (2014). Learning phrase representations using RNN encoder–decoder. <em>EMNLP 2014</em>.',
+    '[7] Chung, J., et al. (2014). Empirical evaluation of gated recurrent neural networks. <em>arXiv:1412.3555</em>.',
+    '[8] Dyer, C., et al. (2016). Recurrent neural network grammars. <em>NAACL 2016</em>.',
+    '[9] Gehring, J., et al. (2017). Convolutional sequence to sequence learning. <em>ICML 2017</em>.',
+    '[10] He, K., et al. (2016). Deep residual learning for image recognition. <em>CVPR 2016</em>.',
+    '[11] Hochreiter, S., &amp; Schmidhuber, J. (1997). Long short-term memory. <em>Neural Computation 9(8)</em>.',
+    '[12] Hochreiter, S. (1998). The vanishing gradient problem during learning recurrent neural nets. <em>IJUFKS 6(2)</em>.',
+    '[13] Jozefowicz, R., et al. (2015). An empirical exploration of recurrent network architectures. <em>ICML 2015</em>.',
+    '[14] Kaiser, Ł., &amp; Bengio, S. (2016). Can active memory replace attention? <em>NIPS 2016</em>.',
+    '[15] Kingma, D. P., &amp; Ba, J. L. (2015). Adam: a method for stochastic optimization. <em>ICLR 2015</em>.',
+    '[16] Vaswani, A., et al. (2017). Attention is all you need. <em>NIPS 2017</em>.',
+  ],
+};
+
+// ═══════════════════════════════════════════════════════
+// TEXT PHYSICS  —  paper layout home positions + physics
+// ═══════════════════════════════════════════════════════
+let wordObjs = [];
+let _currentPaperData = null;
+
+function stripHtml(s) {
+  return (s || '').replace(/<[^>]*>/g, ' ').replace(/&[a-z]+;/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+// Offscreen canvas for measuring text widths
+const _mc = document.createElement('canvas').getContext('2d');
+function mw(text, sz, bold) {
+  _mc.font = `${bold ? 'bold ' : ''}${sz}px Georgia,"Times New Roman",serif`;
+  return _mc.measureText(text).width;
+}
+
+// Compute paper-style layout, returns array of {w, sz, bold, italic, alpha, x, y}
+function layoutPaper(data) {
+  const LH = 1.58; // line-height multiplier
+  const paperW  = Math.min(W - 36, 860);
+  const padH    = Math.min(60, paperW * 0.07);
+  const padV    = 40;
+  const paperX0 = (W - paperW) / 2;      // left edge of white card
+  const cx0     = paperX0 + padH;         // content left
+  const cxW     = paperW - padH * 2;      // content width
+  const colGap  = 26;
+  const colW    = (cxW - colGap) / 2;
+  const col1x   = cx0;
+  const col2x   = cx0 + colW + colGap;
+
+  let y = paperX0 + padV + 18; // start Y (use paperX0 as top: 18px)
+  // Recalculate: paper top is 18px from viewport top
+  y = 18 + padV;
+
+  const result = [];
+
+  function words(s) { return stripHtml(s || '').split(/\s+/).filter(Boolean); }
+
+  // Flow words left-to-right wrapping within maxW; returns end Y
+  function flow(wlist, x0, maxW, startY, sz, bold, italic, alpha) {
+    if (!wlist.length) return startY;
+    let cx = x0, cy = startY, lineH = 0;
+    const sp = mw(' ', sz, bold);
+    wlist.forEach(w => {
+      const ww = mw(w, sz, bold);
+      if (cx > x0 && cx + ww > x0 + maxW) {
+        cy += Math.max(lineH, sz) * LH;
+        cx = x0; lineH = 0;
+      }
+      result.push({w, sz, bold, italic: !!italic, alpha, x: cx, y: cy});
+      lineH = Math.max(lineH, sz);
+      cx += ww + sp;
+    });
+    return cy + lineH * LH;
+  }
+
+  // Center-align: compute lines then center each
+  function flowCenter(wlist, x0, maxW, startY, sz, bold, italic, alpha) {
+    if (!wlist.length) return startY;
+    const sp = mw(' ', sz, bold);
+    // Build lines
+    const lines = [];
+    let line = [], lw = 0;
+    wlist.forEach(w => {
+      const ww = mw(w, sz, bold);
+      if (line.length && lw + ww > maxW) {
+        lines.push({words: line, width: lw - sp});
+        line = []; lw = 0;
+      }
+      line.push({w, ww});
+      lw += ww + sp;
+    });
+    if (line.length) lines.push({words: line, width: lw - sp});
+    let cy = startY;
+    lines.forEach(ln => {
+      let cx = x0 + (maxW - ln.width) / 2;
+      ln.words.forEach(({w, ww}) => {
+        result.push({w, sz, bold, italic: !!italic, alpha, x: cx, y: cy});
+        cx += ww + sp;
+      });
+      cy += sz * LH;
+    });
+    return cy;
+  }
+
+  // ── Title block ──
+  y = flowCenter(words(data.title), cx0, cxW, y, 20, true, false, 0.88);
+  y += 3;
+  if (data.authors) {
+    (data.authors + '').split('\n').forEach(line => {
+      y = flowCenter(words(line), cx0, cxW, y, 11, false, false, 0.62);
+    });
+  }
+  if (data.affil) {
+    y = flowCenter(words(data.affil), cx0, cxW, y, 10, false, false, 0.50);
+  }
+  y += 14;
+
+  // ── Abstract ──
+  y = flowCenter(['Abstract'], cx0, cxW, y, 11, true, false, 0.76);
+  y += 2;
+  const absPad = cxW * 0.07;
+  if (data.abstract) {
+    y = flow(words(data.abstract), cx0 + absPad, cxW - absPad * 2, y, 9.5, false, false, 0.50);
+  }
+  if (data.keywords) {
+    y = flow(['Keywords:', ...words(data.keywords)],
+             cx0 + absPad, cxW - absPad * 2, y + 3, 9, false, false, 0.44);
+  }
+  y += 18;
+
+  // ── Body — two columns ──
+  // Flatten all body words with style metadata
+  const bodyWords = [];
+  (data.sections || []).forEach(sec => {
+    if (sec.head) words(sec.head).forEach(w => bodyWords.push({w, sz:10.5, bold:true,  italic:false, alpha:0.72}));
+    if (sec.sub)  words(sec.sub) .forEach(w => bodyWords.push({w, sz:10,   bold:true,  italic:true,  alpha:0.65}));
+    (sec.body || []).forEach(para =>
+      words(para).forEach(w => bodyWords.push({w, sz:9.5, bold:false, italic:false, alpha:0.47}))
+    );
+  });
+
+  // Split at midpoint and flow each column
+  const half = Math.ceil(bodyWords.length / 2);
+
+  function flowMixed(wlist, x0, maxW, startY) {
+    if (!wlist.length) return startY;
+    let cx = x0, cy = startY, lineH = 0;
+    wlist.forEach(item => {
+      const sp = mw(' ', item.sz, item.bold);
+      const ww = mw(item.w, item.sz, item.bold);
+      if (cx > x0 && cx + ww > x0 + maxW) {
+        cy += Math.max(lineH, item.sz) * LH;
+        cx = x0; lineH = 0;
+      }
+      result.push({...item, x: cx, y: cy});
+      lineH = Math.max(lineH, item.sz);
+      cx += ww + sp;
+    });
+    return cy + lineH * LH;
+  }
+
+  const c1end = flowMixed(bodyWords.slice(0, half),  col1x, colW, y);
+  const c2end = flowMixed(bodyWords.slice(half),      col2x, colW, y);
+  y = Math.max(c1end, c2end) + 18;
+
+  // ── References ──
+  if (data.refs && data.refs.length) {
+    y = flow(['References'], cx0, cxW, y, 10.5, true, false, 0.70);
+    y += 2;
+    const refWords = data.refs.flatMap(r =>
+      words(r).map(w => ({w, sz:9, bold:false, italic:false, alpha:0.36})));
+    const rh = Math.ceil(refWords.length / 2);
+    flowMixed(refWords.slice(0, rh), col1x, colW, y);
+    flowMixed(refWords.slice(rh),    col2x, colW, y);
+  }
+
+  return result;
+}
+
+function initTextPhysics(data) {
+  _currentPaperData = data;
+  const stage = document.getElementById('text-stage');
+  stage.innerHTML = '';
+  wordObjs = [];
+
+  const layout = layoutPaper(data);
+  if (!layout.length) return;
+
+  const frag = document.createDocumentFragment();
+  layout.forEach(item => {
+    const el = document.createElement('span');
+    el.className = 'wp';
+    el.textContent = item.w;
+    el.style.cssText =
+      `left:${item.x|0}px;top:${item.y|0}px;font-size:${item.sz}px;` +
+      `opacity:${item.alpha};font-weight:${item.bold?'bold':'normal'};` +
+      `font-style:${item.italic?'italic':'normal'}`;
+    frag.appendChild(el);
+    wordObjs.push({el, hx: item.x, hy: item.y, x: item.x, y: item.y, vx: 0, vy: 0});
+  });
+  stage.appendChild(frag);
+}
+
+function updateTextPhysics() {
+  if (!wordObjs.length) return;
+
+  // Build repellers from live game objects
+  const reps = [];
+  if (gState === 'playing' || gState === 'paused') {
+    const ph = bmH(BM.pl) * PS, pw = bmW(BM.pl) * PS;
+    const py = H - 88 - ph * 0.5;
+    // Player ship
+    reps.push({x: playerX, y: py, r: 75, str: 1400});
+    // Aliens
+    aliens.forEach(a => {
+      if (!a.alive) return;
+      const bm = alienBm(a.r, 0);
+      reps.push({x: a.x + bmW(bm)*SC*0.5, y: a.y + bmH(bm)*SC*0.5, r: 58, str: 1000});
+    });
+    // Player bullet
+    if (pBullet) reps.push({x: pBullet.x, y: pBullet.y, r: 44, str: 750});
+    // Alien bullets
+    aBullets.forEach(b => reps.push({x: b.x, y: b.y, r: 38, str: 620}));
+    // UFO
+    if (ufo) reps.push({x: ufo.x + bmW(BM.ufo)*SC*0.5, y: ufo.y, r: 85, str: 900});
+  }
+
+  wordObjs.forEach(w => {
+    let fx = 0, fy = 0;
+
+    // Repulsion
+    for (let i = 0; i < reps.length; i++) {
+      const rep = reps[i];
+      const dx = w.x - rep.x;
+      const dy = w.y - rep.y;
+      const d2 = dx*dx + dy*dy;
+      const r2 = rep.r * rep.r;
+      if (d2 < r2) {
+        const d = Math.sqrt(d2) || 1;
+        const f = rep.str * (1 - d / rep.r) / d;
+        fx += dx * f;
+        fy += dy * f;
+      }
+    }
+
+    // Spring back to home position
+    fx += (w.hx - w.x) * 0.055;
+    fy += (w.hy - w.y) * 0.055;
+
+    // Integrate
+    w.vx = (w.vx + fx * 0.016) * 0.86;
+    w.vy = (w.vy + fy * 0.016) * 0.86;
+
+    // Speed cap
+    const spd2 = w.vx*w.vx + w.vy*w.vy;
+    if (spd2 > 484) { // cap at 22 px/frame
+      const s = 22 / Math.sqrt(spd2);
+      w.vx *= s; w.vy *= s;
+    }
+
+    w.x += w.vx;
+    w.y += w.vy;
+
+    // Update DOM via transform (avoids layout reflow)
+    w.el.style.transform = `translate(${(w.x - w.hx)|0}px,${(w.y - w.hy)|0}px)`;
+  });
+}
+
+// ═══════════════════════════════════════════════════════
+// PDF / TXT UPLOAD
+// ═══════════════════════════════════════════════════════
+async function handleUpload(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  showStatus('⏳ 解析中…');
+  e.target.value = '';
+  try {
+    let text = '';
+    if (file.name.toLowerCase().endsWith('.pdf')) {
+      if (typeof pdfjsLib === 'undefined') { showStatus('❌ PDF.js 未加载'); return; }
+      const buf = await file.arrayBuffer();
+      const pdf = await pdfjsLib.getDocument({data:buf}).promise;
+      for (let i = 1; i <= pdf.numPages; i++) {
+        const page = await pdf.getPage(i);
+        const tc = await page.getTextContent();
+        // Preserve line breaks by grouping items by Y position
+        let lastY = null;
+        tc.items.forEach(it => {
+          const y = it.transform[5];
+          if (lastY !== null && Math.abs(y - lastY) > 5) text += '\n';
+          text += it.str;
+          lastY = y;
+        });
+        text += '\n';
+      }
+    } else {
+      text = await file.text();
+    }
+    const data = autoLayout(text, file.name);
+    initTextPhysics(data);
+    showStatus('✓ ' + file.name);
+    setTimeout(hideStatus, 4000);
+  } catch(err) {
+    showStatus('❌ ' + err.message);
+    setTimeout(hideStatus, 5000);
+  }
+}
+
+function autoLayout(text, filename) {
+  const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+  let title = filename.replace(/\.[^.]+$/, '');
+  let authors = '', abstract = '', keywords = '';
+  const sections = [], refs = [];
+  let cur = null, phase = 'title', titleCount = 0;
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const up = line.toUpperCase().trim();
+
+    if (phase === 'title') {
+      if (line.length > 8) {
+        if (titleCount === 0) { title = line; titleCount++; }
+        else if (titleCount === 1 && line.length < 150) { authors = line; titleCount++; phase = 'abstract'; }
+        else { phase = 'abstract'; i--; }
+      }
+      continue;
+    }
+    if (up === 'ABSTRACT' || up.startsWith('ABSTRACT—') || up.startsWith('ABSTRACT:') || up.startsWith('ABSTRACT ')) {
+      phase = 'abstract';
+      const rest = line.replace(/^abstract[—:\s]*/i, '').trim();
+      if (rest.length > 5) abstract = rest;
+      continue;
+    }
+    if (up === 'REFERENCES' || up === 'BIBLIOGRAPHY' || up === 'WORKS CITED') {
+      phase = 'refs'; if (cur) { sections.push(cur); cur = null; } continue;
+    }
+    if (phase === 'refs') { refs.push(esc(line)); continue; }
+
+    if (phase === 'abstract') {
+      if (/^(\d+\.?\s|[A-Z]{4})/.test(line)) { phase = 'body'; i--; }
+      else { abstract += (abstract ? ' ' : '') + line; }
+      continue;
+    }
+
+    // Section detection
+    const secM = line.match(/^(\d+\.?\d*\.?\d*)\s+[A-Z\S]/);
+    const capH = line.length < 70 && line === up && /[A-Z]{4}/.test(line) && line.length > 3;
+    if (secM || capH) {
+      if (cur) sections.push(cur);
+      cur = {head: esc(line), sub: null, body: []};
+      phase = 'body'; continue;
+    }
+    if (!cur) cur = {head: null, sub: null, body: []};
+    cur.body.push(esc(line));
+  }
+  if (cur) sections.push(cur);
+
+  if (sections.length === 0 && lines.length > 3) {
+    const body = lines.slice(Math.min(4, lines.length));
+    const sz = Math.max(3, Math.ceil(body.length / 7));
+    for (let i = 0; i < body.length; i += sz)
+      sections.push({head: null, sub: null, body: body.slice(i, i+sz).map(esc)});
+  }
+  return {title: esc(title), authors: esc(authors), affil:'', abstract: esc(abstract), keywords, sections, refs};
+}
+
+function esc(s) {
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+function showStatus(m) { const e=document.getElementById('status-msg'); e.textContent=m; e.style.display='block'; }
+function hideStatus() { document.getElementById('status-msg').style.display='none'; }
+
+// ═══════════════════════════════════════════════════════
+// SPRITE BITMAPS
+// ═══════════════════════════════════════════════════════
+const BM = {
+  sqA:[[0,0,0,1,1,0,0,0],[0,0,1,1,1,1,0,0],[0,1,1,1,1,1,1,0],[1,1,0,1,1,0,1,1],[1,1,1,1,1,1,1,1],[0,0,1,0,0,1,0,0],[0,1,0,1,1,0,1,0],[1,0,0,0,0,0,0,1]],
+  sqB:[[0,0,0,1,1,0,0,0],[0,0,1,1,1,1,0,0],[0,1,1,1,1,1,1,0],[1,1,0,1,1,0,1,1],[1,1,1,1,1,1,1,1],[0,1,0,1,1,0,1,0],[1,0,0,0,0,0,0,1],[0,1,0,0,0,0,1,0]],
+  crA:[[0,0,1,0,0,0,0,0,1,0,0],[0,0,0,1,0,0,0,1,0,0,0],[0,0,1,1,1,1,1,1,1,0,0],[0,1,1,0,1,1,1,0,1,1,0],[1,1,1,1,1,1,1,1,1,1,1],[1,0,1,1,1,1,1,1,1,0,1],[1,0,1,0,0,0,0,0,1,0,1],[0,0,0,1,1,0,1,1,0,0,0]],
+  crB:[[0,0,1,0,0,0,0,0,1,0,0],[1,0,0,1,0,0,0,1,0,0,1],[1,0,1,1,1,1,1,1,1,0,1],[1,1,1,0,1,1,1,0,1,1,1],[0,1,1,1,1,1,1,1,1,1,0],[0,0,1,1,1,1,1,1,1,0,0],[0,0,1,0,0,0,0,0,1,0,0],[0,1,0,0,0,0,0,0,0,1,0]],
+  ocA:[[0,0,0,0,1,1,1,1,0,0,0,0],[0,0,0,1,1,1,1,1,1,0,0,0],[0,0,1,1,1,1,1,1,1,1,0,0],[0,1,1,0,0,1,1,0,0,1,1,0],[1,1,1,1,1,1,1,1,1,1,1,1],[0,1,0,1,1,1,1,1,1,0,1,0],[0,0,0,1,0,0,0,0,1,0,0,0],[0,0,1,0,0,0,0,0,0,1,0,0]],
+  ocB:[[0,0,0,0,1,1,1,1,0,0,0,0],[0,0,0,1,1,1,1,1,1,0,0,0],[0,0,1,1,1,1,1,1,1,1,0,0],[0,1,1,0,0,1,1,0,0,1,1,0],[1,1,1,1,1,1,1,1,1,1,1,1],[0,0,1,1,1,1,1,1,1,1,0,0],[0,1,0,0,1,0,0,1,0,0,1,0],[0,0,1,0,0,0,0,0,0,1,0,0]],
+  ufo:[[0,0,0,0,0,1,1,1,1,1,1,0,0,0,0,0],[0,0,0,1,1,1,1,1,1,1,1,1,1,0,0,0],[0,0,1,1,1,1,1,1,1,1,1,1,1,1,0,0],[0,1,1,0,1,1,0,1,1,0,1,1,0,1,1,0],[1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],[0,0,1,1,1,0,0,1,1,0,0,1,1,1,0,0],[0,0,0,1,0,0,0,0,0,0,0,0,1,0,0,0]],
+  pl: [[0,0,0,0,0,0,1,0,0,0,0,0,0],[0,0,0,0,0,1,1,1,0,0,0,0,0],[0,0,0,0,0,1,1,1,0,0,0,0,0],[0,1,1,1,1,1,1,1,1,1,1,1,0],[1,1,1,1,1,1,1,1,1,1,1,1,1],[1,1,1,1,1,1,1,1,1,1,1,1,1],[1,1,1,1,1,1,1,1,1,1,1,1,1],[1,1,1,1,1,1,1,1,1,1,1,1,1]],
+  ex: [[0,1,0,0,1,0,0,1,0,0,1,0,0],[0,0,1,0,0,1,0,1,0,0,1,0,0],[1,0,0,1,0,0,1,0,0,1,0,0,1],[0,0,1,0,0,0,1,0,0,0,1,0,0],[1,0,0,1,0,0,1,0,0,1,0,0,1],[0,0,1,0,0,1,0,1,0,0,1,0,0],[0,1,0,0,1,0,0,1,0,0,1,0,0]],
+};
+const bmW = b => b[0].length;
+const bmH = b => b.length;
+
+// Draw with black shadow for visibility on white paper
+function drawBm(bm, x, y, s, color) {
+  // Shadow pass
+  ctx.fillStyle = 'rgba(0,0,0,0.35)';
+  for (let r=0;r<bm.length;r++) for (let c=0;c<bm[r].length;c++)
+    if (bm[r][c]) ctx.fillRect((x+c*s+1)|0, (y+r*s+2)|0, s, s);
+  // Color pass
+  ctx.fillStyle = color;
+  for (let r=0;r<bm.length;r++) for (let c=0;c<bm[r].length;c++)
+    if (bm[r][c]) ctx.fillRect((x+c*s)|0, (y+r*s)|0, s, s);
+}
+
+function drawBmPreview(id, bm, color, s) {
+  const c = document.getElementById(id); if (!c) return;
+  c.width = bmW(bm)*s+2; c.height = bmH(bm)*s+4;
+  const cx = c.getContext('2d');
+  cx.fillStyle='rgba(0,0,0,0.2)';
+  for (let r=0;r<bm.length;r++) for (let cc=0;cc<bm[r].length;cc++)
+    if (bm[r][cc]) cx.fillRect(cc*s+1, r*s+2, s, s);
+  cx.fillStyle=color;
+  for (let r=0;r<bm.length;r++) for (let cc=0;cc<bm[r].length;cc++)
+    if (bm[r][cc]) cx.fillRect(cc*s, r*s, s, s);
+}
+
+function drawPreviews() {
+  drawBmPreview('pv-sq', BM.sqA, '#E8006A', 2);
+  drawBmPreview('pv-cr', BM.crA, '#007AB8', 2);
+  drawBmPreview('pv-oc', BM.ocA, '#2A8800', 2);
+  drawBmPreview('pv-uf', BM.ufo, '#CC0000', 2);
+}
+
+// ═══════════════════════════════════════════════════════
+// GAME ENGINE
+// ═══════════════════════════════════════════════════════
+const canvas = document.getElementById('game-canvas');
+const ctx    = canvas.getContext('2d');
+
+// Sprite colors — saturated, visible on white paper
+const COL_SQ  = '#E8006A';  // magenta
+const COL_CR  = '#007AB8';  // teal
+const COL_OC  = '#2A8800';  // dark green
+const COL_PL  = '#003ECC';  // dark blue
+const COL_UFO = '#CC0000';  // red
+const COL_BUL = '#111111';  // near black
+const COL_ABL = '#AA0000';  // dark red
+const COL_SHD = '#116600';  // shield green
+
+const ROW_TYPE  = [0,1,1,2,2];
+const ROW_COLOR = [COL_SQ,COL_CR,COL_CR,COL_OC,COL_OC];
+const ROW_PTS   = [30,20,20,10,10];
+
+const SC=3, PS=3, COLS=11, ROWS=5, CW=48, CH=38, SBS=3, MAX_AB=3;
+let W,H;
+function resize() { W=canvas.width=window.innerWidth; H=canvas.height=window.innerHeight; }
+
+// State
+let gState='start';
+let score,hi,lives,level;
+let aliens,aDir,aFr,aTick,aInterval;
+let playerX,pBullet;
+let aBullets,explosions,shields;
+let ufo,ufoTick;
+let frameN,lastShot,pDying;
+const keys={};
+
+function alienBm(r,fr) {
+  const t=ROW_TYPE[r];
+  return t===0?(fr?BM.sqB:BM.sqA):t===1?(fr?BM.crB:BM.crA):(fr?BM.ocB:BM.ocA);
+}
+
+// ── SHIELD SHAPE ──
+const SS=[
+  [0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0],
+  [0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0],
+  [0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0],
+  [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+  [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+  [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+  [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+  [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+  [1,1,1,1,1,1,0,0,0,0,0,0,0,0,1,1,1,1,1,1],
+  [1,1,1,1,1,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1],
+  [1,1,1,1,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1],
+  [1,1,1,1,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1],
+];
+
+function initGame() {
+  score=0; lives=3; level=1;
+  playerX=W/2; pBullet=null; aBullets=[]; explosions=[];
+  ufo=null; ufoTick=0; frameN=0; lastShot=0; pDying=0;
+  spawnAliens(); spawnShields(); aInterval=baseInt(); updateHUD();
+}
+function nextLevel() {
+  level++; pBullet=null; aBullets=[]; explosions=[];
+  ufo=null; ufoTick=0; pDying=0;
+  spawnAliens(); spawnShields(); aInterval=baseInt(); updateHUD();
+}
+function baseInt() { return Math.max(7, 55-(level-1)*5); }
+
+function spawnAliens() {
+  aliens=[]; aDir=1; aFr=0; aTick=0;
+  const sx=(W-COLS*CW)/2, sy=70;
+  for (let r=0;r<ROWS;r++) for (let c=0;c<COLS;c++)
+    aliens.push({r,c,x:sx+c*CW,y:sy+r*CH,alive:true});
+}
+
+function spawnShields() {
+  shields=[];
+  for (let i=0;i<4;i++) {
+    const sx=(W/5)*(i+1)-SS[0].length*SBS/2, sy=H-155;
+    const blocks=[];
+    SS.forEach((row,r) => row.forEach((v,c) => { if(v) blocks.push({x:sx+c*SBS,y:sy+r*SBS,hp:3}); }));
+    shields.push(blocks);
+  }
+}
+
+// ── AUDIO ──
+let audio;
+function ensureAudio() {
+  if (!audio) try { audio=new(window.AudioContext||window.webkitAudioContext)(); } catch(e){}
+  if (audio && audio.state==='suspended') audio.resume();
+}
+function beep(f,d,tp='square',v=0.2) {
+  if(!audio)return;
+  const o=audio.createOscillator(),g=audio.createGain();
+  o.connect(g); g.connect(audio.destination);
+  o.type=tp; o.frequency.value=f;
+  const t=audio.currentTime;
+  g.gain.setValueAtTime(v,t); g.gain.exponentialRampToValueAtTime(0.001,t+d);
+  o.start(t); o.stop(t+d);
+}
+function sweep(f1,f2,d,tp='sawtooth',v=0.25) {
+  if(!audio)return;
+  const o=audio.createOscillator(),g=audio.createGain();
+  o.connect(g); g.connect(audio.destination);
+  o.type=tp;
+  const t=audio.currentTime;
+  o.frequency.setValueAtTime(f1,t); o.frequency.exponentialRampToValueAtTime(f2,t+d);
+  g.gain.setValueAtTime(v,t); g.gain.exponentialRampToValueAtTime(0.001,t+d);
+  o.start(t); o.stop(t+d);
+}
+const MARCH=[160,130,100,80]; let mIdx=0;
+function march() { beep(MARCH[mIdx++%4],0.07,'square',0.1); }
+
+// ── HUD ──
+function updateHUD() {
+  hi = Math.max(hi||0, score);
+  localStorage.setItem('si_hi', hi);
+  document.getElementById('sv').textContent=String(score).padStart(4,'0');
+  document.getElementById('hv').textContent=String(hi).padStart(4,'0');
+  document.getElementById('lv').textContent=level;
+  document.getElementById('liv').textContent='♥ '.repeat(Math.max(0,lives)).trim()||'☆';
+}
+
+// ── OVERLAY ──
+function showOverlay(title, msg) {
+  const el = document.getElementById('overlay-screen');
+  el.style.display = 'flex';
+  el.classList.add('active');
+  document.getElementById('start-box').querySelector('h1').textContent=title;
+  document.getElementById('overlay-msg').textContent=msg;
+}
+function hideOverlay() {
+  const el = document.getElementById('overlay-screen');
+  el.classList.remove('active');
+  el.style.display = 'none';
+}
+
+// ═══════════════════════════════════════════════════════
+// UPDATE
+// ═══════════════════════════════════════════════════════
+function update() {
+  frameN++;
+
+  // Input
+  if (pDying<=0) {
+    if (keys['ArrowLeft']||keys['a']||keys['A']||keys._l) playerX=Math.max(18,playerX-4);
+    if (keys['ArrowRight']||keys['d']||keys['D']||keys._r) playerX=Math.min(W-18,playerX+4);
+    if ((keys[' ']||keys['z']||keys['Z']||keys._s) && !pBullet && frameN-lastShot>18) {
+      pBullet={x:playerX, y:H-90, vy:-13};
+      lastShot=frameN; sweep(880,110,0.11,'square',0.18);
+    }
+  }
+
+  if (pDying>0) { if(--pDying===0) playerX=W/2; }
+
+  // Alien march
+  if (++aTick>=aInterval) {
+    aTick=0; aFr^=1; march();
+    const live=aliens.filter(a=>a.alive);
+    if (!live.length) return;
+    let wall=false;
+    for (const a of live) {
+      if (aDir>0&&a.x+CW>W-12) { wall=true; break; }
+      if (aDir<0&&a.x<12)       { wall=true; break; }
+    }
+    if (wall) { aDir=-aDir; aliens.forEach(a=>a.y+=CH*0.44); }
+    else       { aliens.forEach(a=>a.x+=aDir*CW*0.44); }
+    if (aBullets.length<MAX_AB && Math.random()<0.33) {
+      const col=Math.floor(Math.random()*COLS);
+      const bot=live.filter(a=>a.c===col).sort((p,q)=>q.y-p.y)[0];
+      if (bot) { const bm=alienBm(bot.r,0); aBullets.push({x:bot.x+bmW(bm)*SC/2, y:bot.y+bmH(bm)*SC, vy:4+level*0.35}); }
+    }
+    const rem=live.length; aInterval=Math.max(4,Math.floor(baseInt()*rem/(ROWS*COLS)));
+  }
+
+  // Bullets
+  if (pBullet) { pBullet.y+=pBullet.vy; if(pBullet.y<0) pBullet=null; }
+  for (let i=aBullets.length-1;i>=0;i--) { aBullets[i].y+=aBullets[i].vy; if(aBullets[i].y>H) aBullets.splice(i,1); }
+
+  // UFO
+  if (++ufoTick>900&&!ufo) { ufoTick=0; ufo={x:-60,y:35,vx:2.5}; }
+  if (ufo) { ufo.x+=ufo.vx; if(frameN%25===0) beep(370+Math.sin(frameN*0.18)*60,0.14,'square',0.08); if(ufo.x>W+60) ufo=null; }
+
+  checkCollisions();
+
+  for (let i=explosions.length-1;i>=0;i--) if(--explosions[i].t<=0) explosions.splice(i,1);
+
+  // Win / Lose
+  const live=aliens.filter(a=>a.alive);
+  if (live.some(a=>a.y+CH>=H-90)) { gState='gameover'; showOverlay('GAME OVER','PRESS SPACE TO TRY AGAIN'); }
+  else if (!live.length) { gState='levelclear'; sweep(523,1047,0.45,'square',0.2); showOverlay(`LEVEL ${level} CLEAR!`,`PRESS SPACE FOR LEVEL ${level+1}`); }
+}
+
+function checkCollisions() {
+  const ph=bmH(BM.pl)*PS, pw=bmW(BM.pl)*PS;
+  const py=H-88, px0=playerX-pw/2;
+
+  // PBullet → aliens
+  if (pBullet) {
+    for (const a of aliens) {
+      if (!a.alive) continue;
+      const bm=alienBm(a.r,0), aw=bmW(bm)*SC, ah=bmH(bm)*SC;
+      const ox=a.x+(CW-aw)/2, oy=a.y+(CH-ah)/2;
+      if (pBullet.x>=ox&&pBullet.x<=ox+aw&&pBullet.y>=oy&&pBullet.y<=oy+ah) {
+        a.alive=false; score+=ROW_PTS[a.r]; updateHUD();
+        explosions.push({x:a.x+CW/2-18,y:a.y+CH/2-12,t:28,color:ROW_COLOR[a.r],s:3});
+        pBullet=null; sweep(200,50,0.22,'sawtooth',0.28); break;
+      }
+    }
+  }
+  // PBullet → UFO
+  if (pBullet&&ufo) {
+    const uw=bmW(BM.ufo)*SC, uh=bmH(BM.ufo)*SC;
+    if (pBullet.x>=ufo.x&&pBullet.x<=ufo.x+uw&&pBullet.y>=ufo.y&&pBullet.y<=ufo.y+uh) {
+      const pts=[50,100,150,300][Math.random()*4|0];
+      score+=pts; updateHUD();
+      explosions.push({x:ufo.x,y:ufo.y,t:50,color:COL_UFO,s:SC,label:'+'+pts});
+      ufo=null; pBullet=null; sweep(400,800,0.4,'square',0.22);
+    }
+  }
+  // PBullet → shields
+  if (pBullet) {
+    OUTER: for (const sh of shields) for (let i=sh.length-1;i>=0;i--) {
+      const b=sh[i]; if(b.hp<=0) continue;
+      if (pBullet.x>=b.x&&pBullet.x<=b.x+SBS&&pBullet.y>=b.y&&pBullet.y<=b.y+SBS) { b.hp--; pBullet=null; break OUTER; }
+    }
+  }
+  // ABullets → player
+  if (pDying<=0) {
+    for (let i=aBullets.length-1;i>=0;i--) {
+      const b=aBullets[i];
+      if (b.x>=px0&&b.x<=px0+pw&&b.y>=py-ph&&b.y<=py) {
+        aBullets.splice(i,1); lives--; updateHUD(); pDying=130;
+        explosions.push({x:px0-6,y:py-ph-6,t:90,color:COL_PL,s:4});
+        sweep(440,55,1.0,'sawtooth',0.35);
+        if (lives<=0) setTimeout(()=>{gState='gameover';showOverlay('GAME OVER','PRESS SPACE TO TRY AGAIN');},1700);
+        break;
+      }
+    }
+  }
+  // ABullets → shields
+  for (let bi=aBullets.length-1;bi>=0;bi--) {
+    const b=aBullets[bi]; let hit=false;
+    for (const sh of shields) {
+      if (hit) break;
+      for (let i=sh.length-1;i>=0;i--) {
+        const bl=sh[i]; if(bl.hp<=0) continue;
+        if (b.x>=bl.x&&b.x<=bl.x+SBS&&b.y>=bl.y&&b.y<=bl.y+SBS) {
+          bl.hp--; sh.forEach(nb=>{ const d=Math.hypot(nb.x-bl.x,nb.y-bl.y); if(d<9&&Math.random()<0.4) nb.hp=Math.max(0,nb.hp-1); });
+          hit=true; break;
+        }
+      }
+    }
+    if (hit) aBullets.splice(bi,1);
+  }
+}
+
+// ═══════════════════════════════════════════════════════
+// RENDER  —  no dark background, sprites on raw paper
+// ═══════════════════════════════════════════════════════
+function render() {
+  // Clear to fully transparent — paper shows through everywhere
+  ctx.clearRect(0, 0, W, H);
+  if (gState==='start'||gState==='gameover'||gState==='levelclear') return;
+
+  // Ground line — thin, ink-like
+  ctx.strokeStyle='#333'; ctx.lineWidth=1.5;
+  ctx.setLineDash([4,3]); ctx.beginPath();
+  ctx.moveTo(0,H-60); ctx.lineTo(W,H-60); ctx.stroke();
+  ctx.setLineDash([]);
+
+  // Shields
+  shields.forEach(sh => sh.forEach(b => {
+    if (b.hp<=0) return;
+    const a=b.hp/3;
+    ctx.fillStyle=`rgba(17,${Math.floor(102*a+50)},0,${0.55+a*0.45})`;
+    ctx.fillRect(b.x,b.y,SBS,SBS);
+  }));
+
+  // Aliens
+  aliens.forEach(a => {
+    if (!a.alive) return;
+    const bm=alienBm(a.r,aFr), aw=bmW(bm)*SC, ah=bmH(bm)*SC;
+    drawBm(bm, a.x+(CW-aw)/2, a.y+(CH-ah)/2, SC, ROW_COLOR[a.r]);
+  });
+
+  // UFO
+  if (ufo) drawBm(BM.ufo, ufo.x, ufo.y, SC, COL_UFO);
+
+  // Player
+  const py=H-88, ph=bmH(BM.pl)*PS, pw=bmW(BM.pl)*PS;
+  if (pDying<=0) {
+    drawBm(BM.pl, playerX-pw/2, py-ph, PS, COL_PL);
+  } else if (Math.floor(pDying/6)%2===0) {
+    const a=pDying/130;
+    ctx.globalAlpha=a; drawBm(BM.ex, playerX-pw/2, py-ph, PS, COL_PL); ctx.globalAlpha=1;
+  }
+
+  // Player bullet — thin black line
+  if (pBullet) {
+    ctx.fillStyle=COL_BUL;
+    ctx.fillRect((pBullet.x-1.5)|0, (pBullet.y-10)|0, 3, 18);
+  }
+
+  // Alien bullets — zigzag, dark red
+  aBullets.forEach(b => {
+    const zz=Math.floor(b.y/4)%2?0:3;
+    ctx.fillStyle=COL_ABL;
+    ctx.fillRect((b.x-1+zz)|0,(b.y-5)|0,3,4);
+    ctx.fillRect((b.x-3+zz)|0,(b.y   )|0,3,4);
+    ctx.fillRect((b.x-1+zz)|0,(b.y+5 )|0,3,4);
+  });
+
+  // Explosions
+  explosions.forEach(ex => {
+    ctx.globalAlpha=Math.min(1,ex.t/20);
+    if (ex.label) {
+      ctx.globalAlpha=1; ctx.fillStyle=ex.color;
+      ctx.font='bold 14px Courier New';
+      ctx.fillText(ex.label, ex.x, ex.y+10);
+    }
+    drawBm(BM.ex, ex.x, ex.y, ex.s, ex.color);
+    ctx.globalAlpha=1;
+  });
+
+  // Lives strip
+  ctx.fillStyle='#222'; ctx.font='bold 13px Courier New';
+  ctx.fillText(String(lives), 16, H-22);
+  const lw=bmW(BM.pl)*2, lh=bmH(BM.pl)*2;
+  for (let i=0;i<Math.min(lives-1,4);i++) drawBm(BM.pl, 34+i*(lw+5), H-44, 2, COL_PL);
+
+  // Paused
+  if (gState==='paused') {
+    ctx.fillStyle='rgba(242,237,228,0.72)'; ctx.fillRect(0,0,W,H);
+    ctx.fillStyle='#111'; ctx.font='bold 42px Courier New'; ctx.textAlign='center';
+    ctx.fillText('PAUSED', W/2, H/2);
+    ctx.fillStyle='#666'; ctx.font='16px Courier New';
+    ctx.fillText('P to resume', W/2, H/2+38);
+    ctx.textAlign='left';
+  }
+}
+
+// ═══════════════════════════════════════════════════════
+// LOOP
+// ═══════════════════════════════════════════════════════
+function loop() { updateTextPhysics(); if(gState==='playing') update(); render(); requestAnimationFrame(loop); }
+
+// ═══════════════════════════════════════════════════════
+// INPUT
+// ═══════════════════════════════════════════════════════
+document.addEventListener('keydown', e => {
+  keys[e.key]=true;
+  if (e.key===' ') { e.preventDefault(); onAction(); }
+  if ((e.key==='p'||e.key==='P') && (gState==='playing'||gState==='paused'))
+    gState = gState==='playing'?'paused':'playing';
+  if (['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(e.key)&&gState==='playing')
+    e.preventDefault();
+});
+document.addEventListener('keyup', e => { delete keys[e.key]; });
+document.getElementById('overlay-screen').addEventListener('click', ()=>{ ensureAudio(); onAction(); });
+
+function onAction() {
+  if (gState==='start'||gState==='gameover') {
+    hi=+localStorage.getItem('si_hi')||0;
+    initGame(); gState='playing'; hideOverlay();
+    document.getElementById('hud').style.display='flex';
+    if (/Mobi|Android|iPhone|iPad/i.test(navigator.userAgent))
+      document.getElementById('mobile-ctrl').classList.add('show');
+  } else if (gState==='levelclear') { nextLevel(); gState='playing'; hideOverlay(); }
+}
+
+['bl','br','bsh'].forEach(id => {
+  const key = id==='bl'?'_l':id==='br'?'_r':'_s';
+  const btn = document.getElementById(id);
+  btn.addEventListener('pointerdown', e=>{ e.preventDefault(); keys[key]=true; ensureAudio(); });
+  btn.addEventListener('pointerup',   e=>{ e.preventDefault(); delete keys[key]; });
+  btn.addEventListener('pointerleave',e=>{ e.preventDefault(); delete keys[key]; });
+});
+
+window.addEventListener('resize', () => {
+  resize();
+  if (gState==='playing'||gState==='paused') { spawnAliens(); spawnShields(); }
+  if (_currentPaperData) initTextPhysics(_currentPaperData);
+});
+
+// ═══════════════════════════════════════════════════════
+// INIT
+// ═══════════════════════════════════════════════════════
+resize();
+hi=+localStorage.getItem('si_hi')||0;
+initTextPhysics(DEFAULT_PAPER);
+setTimeout(drawPreviews, 100);
+loop();
+</script>
+</body>
+</html>
